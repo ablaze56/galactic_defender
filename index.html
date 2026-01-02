@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galactic Defender | Space Shooter</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="ui-overlay">
+            <div id="hud">
+                <div class="stat">PILOT: <span id="pilot-name">---</span></div>
+                <div class="stat">SCORE: <span id="score">0</span></div>
+                <div class="stat">CREDITS: <span id="credits">0</span></div>
+                <div class="stat">LIVES: <span id="lives">3</span></div>
+            </div>
+
+            <div id="login-screen" class="modal">
+                <h1>PILOT <span class="accent">REGISTRATION</span></h1>
+                <p>Identify yourself, Defender of Earth!</p>
+                <input type="text" id="username-input" placeholder="ENTER CALLSIGN..." maxlength="12">
+                <button id="login-btn">INITIALIZE SHIP</button>
+            </div>
+
+            <div id="start-screen" class="modal">
+                <h1>GALACTIC <span class="accent">DEFENDER</span></h1>
+                <p>Protect the galaxy from the alien invasion!</p>
+                <div class="controls-hint">
+                    <span>[WASD] Move</span>
+                    <span>[SPACE] Shoot</span>
+                </div>
+                <div class="menu-buttons">
+                    <button id="start-btn">LAUNCH MISSION</button>
+                    <button id="lobby-btn">UPGRADE SHIP</button>
+                </div>
+            </div>
+
+            <div id="lobby-screen" class="modal hidden">
+                <h1>SHIP <span class="accent">HANGAR</span></h1>
+                <p>Spend credits to enhance your firepower!</p>
+                <div class="upgrade-list">
+                    <div class="upgrade-item">
+                        <div class="upgrade-info">
+                            <h3>FIRE RATE</h3>
+                            <p>Shoot faster projectiles</p>
+                        </div>
+                        <button id="upgrade-firerate" class="upgrade-btn">COST: 500</button>
+                    </div>
+                    <div class="upgrade-item">
+                        <div class="upgrade-info">
+                            <h3>DAMAGE</h3>
+                            <p>Destroy armored ships easier</p>
+                        </div>
+                        <button id="upgrade-damage" class="upgrade-btn">COST: 1000</button>
+                    </div>
+                    <div class="upgrade-item">
+                        <div class="upgrade-info">
+                            <h3>SLO: STRANSKI TOPOVI / ENG: SIDE CANNONS</h3>
+                            <p>Streljaj iz strani tvoje ladje / Fire from the sides of your ship</p>
+                        </div>
+                        <button id="upgrade-sidecannons" class="upgrade-btn">COST: 5000</button>
+                    </div>
+                </div>
+                <button id="back-btn">BACK TO MENU</button>
+            </div>
+
+            <div id="game-over-screen" class="modal hidden">
+                <h1>MISSION <span class="danger">FAILED</span></h1>
+                <p>The galaxy has fallen...</p>
+                <div class="final-stats">
+                    FINAL SCORE: <span id="final-score">0</span>
+                </div>
+                <div class="menu-buttons">
+                    <button id="restart-btn">TRY AGAIN</button>
+                    <button id="go-to-lobby-btn">GO TO HANGAR</button>
+                </div>
+            </div>
+            <div id="mobile-controls">
+                <div class="control-group">
+                    <button id="btn-left" class="joy-btn">←</button>
+                    <div class="up-down">
+                        <button id="btn-up" class="joy-btn">↑</button>
+                        <button id="btn-down" class="joy-btn">↓</button>
+                    </div>
+                    <button id="btn-right" class="joy-btn">→</button>
+                </div>
+                <button id="btn-shoot" class="joy-btn shoot-btn">FIRE</button>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+</html>
