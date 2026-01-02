@@ -120,7 +120,26 @@ window.addEventListener('resize', resize);
 resize();
 
 // Input Handling
-window.addEventListener('keydown', (e) => keys[e.code] = true);
+window.addEventListener('keydown', (e) => {
+    if (!keys[e.code] && gameRunning) {
+        const now = Date.now();
+        // Double tap Left
+        if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
+            if (now - player.lastLeftTap < 250) {
+                player.dash(-1);
+            }
+            player.lastLeftTap = now;
+        }
+        // Double tap Right
+        if (e.code === 'ArrowRight' || e.code === 'KeyD') {
+            if (now - player.lastRightTap < 250) {
+                player.dash(1);
+            }
+            player.lastRightTap = now;
+        }
+    }
+    keys[e.code] = true;
+});
 window.addEventListener('keyup', (e) => keys[e.code] = false);
 
 // Mobile Touch Handling
@@ -161,6 +180,9 @@ class Player {
         this.y = canvas.height - 100;
         this.color = '#00f2ff';
         this.cooldown = 0;
+        this.lastLeftTap = 0;
+        this.lastRightTap = 0;
+        this.dashDistance = 120;
     }
 
     draw() {
@@ -282,6 +304,16 @@ class Player {
         }
 
         if (this.cooldown > 0) this.cooldown--;
+    }
+
+    dash(dir) {
+        this.x += dir * this.dashDistance;
+        // Boundaries after dash
+        this.x = Math.max(0, Math.min(canvas.width - this.width, this.x));
+
+        // Visual & Sound effect
+        createExplosion(this.x + this.width / 2, this.y + this.height / 2, this.color);
+        playSound(400, 'sine', 0.1, 0.2);
     }
 
     shoot() {
