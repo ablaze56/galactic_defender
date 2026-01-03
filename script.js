@@ -38,14 +38,112 @@ let upgradeCosts = {
     damage: 1000,
     sideCannons: 5000
 };
+let stock = [];
+let nextStockRefresh = 0; // Timestamp
+let playerStats = {
+    critChance: 0,
+    magnetRange: 0,
+    bonusCredits: 0,
+    shieldCapacity: 0,
+    projectileSize: 0,
+    speedMultiplier: 1
+};
 let animationId;
 let player;
 let projectiles = [];
+let enemyProjectiles = [];
 let enemies = [];
 let particles = [];
 let powerups = [];
 let planets = [];
 let keys = {};
+
+// --- STOCK SYSTEM DATA ---
+const STOCK_RARITIES = [
+    { id: 'black-hole', name: 'Black Hole', count: 5, colorClass: 'rarity-black-hole', baseCost: 100000 },
+    { id: 'star', name: 'Star', count: 10, colorClass: 'rarity-star', baseCost: 25000 },
+    { id: 'super-rare', name: 'Super Rare', count: 15, colorClass: 'rarity-super-rare', baseCost: 10000 },
+    { id: 'rare', name: 'Rare', count: 20, colorClass: 'rarity-rare', baseCost: 5000 },
+    { id: 'uncommon', name: 'Uncommon', count: 25, colorClass: 'rarity-uncommon', baseCost: 2000 },
+    { id: 'common', name: 'Common', count: 30, colorClass: 'rarity-common', baseCost: 500 }
+];
+
+const STOCK_UPGRADE_TYPES = [
+    { id: 'crit', name: 'Precision Module', desc: '+5% Crit Chance', stat: 'critChance', val: 0.05 },
+    { id: 'magnet', name: 'Resource Magnet', desc: '+100 Magnet Range', stat: 'magnetRange', val: 100 },
+    { id: 'credits', name: 'Wealth Protocol', desc: '+10% Credit Gain', stat: 'bonusCredits', val: 0.1 },
+    { id: 'speed', name: 'Overdrive Engine', desc: '+10% Speed', stat: 'speedMultiplier', val: 0.1 },
+    { id: 'projectile', name: 'Heavy Rounds', desc: '+10% Bullet Size', stat: 'projectileSize', val: 0.1 },
+    { id: 'shield', name: 'Reinforced Hull', desc: '+1 Shield Capacity', stat: 'shieldCapacity', val: 1 }
+];
+
+function generateStock() {
+    stock = [];
+    STOCK_RARITIES.forEach(rarity => {
+        for (let i = 0; i < rarity.count; i++) {
+            const type = STOCK_UPGRADE_TYPES[Math.floor(Math.random() * STOCK_UPGRADE_TYPES.length)];
+            const variance = 0.8 + Math.random() * 0.4;
+            const cost = Math.floor(rarity.baseCost * variance);
+            stock.push({
+                id: Math.random().toString(36).substr(2, 9),
+                rarity: rarity,
+                type: type,
+                cost: cost,
+                purchased: false
+            });
+        }
+    });
+    const rarityOrder = ['black-hole', 'star', 'super-rare', 'rare', 'uncommon', 'common'];
+    stock.sort((a, b) => rarityOrder.indexOf(a.rarity.id) - rarityOrder.indexOf(b.rarity.id));
+    nextStockRefresh = Date.now() + (10 * 60 * 1000);
+    saveData();
+    updateStockUI();
+}
+
+function updateStockUI() {
+    const container = document.getElementById('stock-items');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const availableItems = stock.filter(item => !item.purchased);
+    if (availableItems.length === 0) {
+        container.innerHTML = '<div style="padding: 20px; text-align: center; opacity: 0.5;">[ EVERYTHING SOLD OUT ]</div>';
+        return;
+    }
+
+    availableItems.forEach(item => {
+        const itemEl = document.createElement('div');
+        itemEl.className = `stock-item ${item.rarity.colorClass}`;
+        itemEl.innerHTML = `
+            <div class="stock-item-info">
+                <h4>${item.type.name}</h4>
+                <div class="stock-rarity-text">${item.rarity.name}</div>
+                <span>${item.type.desc}</span>
+            </div>
+            <button class="upgrade-btn stock-buy-btn">
+                ${item.cost} CR
+            </button>
+        `;
+        itemEl.querySelector('.stock-buy-btn').onclick = () => buyStockItem(item.id);
+        container.appendChild(itemEl);
+    });
+}
+
+function buyStockItem(itemId) {
+    const item = stock.find(i => i.id === itemId);
+    if (item && !item.purchased && credits >= item.cost) {
+        credits -= item.cost;
+        item.purchased = true;
+        playerStats[item.type.stat] += item.type.val;
+        creditsEl.innerText = credits;
+        updateStockUI();
+        saveData();
+        playSound(600, 'sine', 0.2);
+    } else if (item && credits < item.cost) {
+        playSound(100, 'sine', 0.2);
+    }
+}
+
 
 // Save Data
 let pilotName = "";
@@ -73,7 +171,10 @@ function saveData() {
         damageLevel,
         sideCannonsLevel,
         upgradeCosts,
-        pilotName
+        pilotName,
+        stock,
+        nextStockRefresh,
+        playerStats
     };
     localStorage.setItem('galacticDefender_save_' + pilotName, JSON.stringify(data));
 }
@@ -88,6 +189,20 @@ function loadData(name) {
         sideCannonsLevel = data.sideCannonsLevel;
         upgradeCosts = data.upgradeCosts;
         pilotName = data.pilotName;
+        stock = data.stock || [];
+        nextStockRefresh = data.nextStockRefresh || 0;
+        playerStats = data.playerStats || {
+            critChance: 0,
+            magnetRange: 0,
+            bonusCredits: 0,
+            shieldCapacity: 0,
+            projectileSize: 0,
+            speedMultiplier: 1
+        };
+        updateStockUI();
+        if (stock.length === 0 || Date.now() > nextStockRefresh) {
+            generateStock();
+        }
         return true;
     }
     return false;
@@ -96,7 +211,7 @@ function loadData(name) {
 // Powerup State
 let activePowerup = null;
 let powerupTimer = 0;
-let hasShield = false;
+let shieldHits = 0;
 let slowMoTimer = 0;
 
 // Animation State
@@ -269,11 +384,11 @@ class Player {
         }
 
         // VISUAL SHIELD
-        if (hasShield) {
+        if (shieldHits > 0) {
             ctx.shadowBlur = 20;
             ctx.shadowColor = '#00f2ff';
-            ctx.strokeStyle = 'rgba(0, 242, 255, 0.5)';
-            ctx.lineWidth = 3;
+            ctx.strokeStyle = `rgba(0, 242, 255, ${0.3 + (shieldHits * 0.2)})`;
+            ctx.lineWidth = 1 + shieldHits;
             ctx.beginPath();
             ctx.arc(0, 0, this.width, 0, Math.PI * 2);
             ctx.stroke();
@@ -287,10 +402,11 @@ class Player {
     }
 
     update() {
-        if (keys['KeyA'] || keys['ArrowLeft']) this.x -= PLAYER_SPEED;
-        if (keys['KeyD'] || keys['ArrowRight']) this.x += PLAYER_SPEED;
-        if (keys['KeyW'] || keys['ArrowUp']) this.y -= PLAYER_SPEED;
-        if (keys['KeyS'] || keys['ArrowDown']) this.y += PLAYER_SPEED;
+        const speed = PLAYER_SPEED * (playerStats.speedMultiplier || 1);
+        if (keys['KeyA'] || keys['ArrowLeft']) this.x -= speed;
+        if (keys['KeyD'] || keys['ArrowRight']) this.x += speed;
+        if (keys['KeyW'] || keys['ArrowUp']) this.y -= speed;
+        if (keys['KeyS'] || keys['ArrowDown']) this.y += speed;
 
         // Boundaries
         this.x = Math.max(0, Math.min(canvas.width - this.width, this.x));
@@ -348,13 +464,44 @@ class Player {
     }
 }
 
+class EnemyProjectile {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.radius = 5;
+        this.color = '#ff0000';
+        this.speed = 4;
+    }
+
+    draw() {
+        ctx.save();
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = this.color;
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    update() {
+        this.y += this.speed;
+    }
+}
+
 class Projectile {
     constructor(x, y, color = '#00f2ff', damage = damageLevel) {
         this.x = x;
         this.y = y;
-        this.radius = 4;
+        this.radius = 4 + (playerStats.projectileSize * 5 || 0);
         this.color = color;
         this.damage = damage;
+        this.isCrit = Math.random() < (playerStats.critChance || 0);
+        if (this.isCrit) {
+            this.damage *= 2;
+            this.radius *= 1.5;
+            this.color = '#fff'; // White for crit
+        }
     }
 
     draw() {
@@ -375,16 +522,18 @@ class Projectile {
 
 class Boss {
     constructor() {
-        this.width = 120;
-        this.height = 80;
-        this.x = canvas.width / 2 - this.width / 2;
+        this.width = canvas.width > 500 ? 120 : 80; // Scale boss for mobile
+        this.height = this.width * 0.66;
+        this.startX = canvas.width / 2 - this.width / 2;
+        this.x = this.startX;
         this.y = -this.height;
         this.health = 20 + Math.floor(score / 1000);
         this.maxHealth = this.health;
         this.color = '#ff00ff'; // Boss color (Magenta)
         this.points = 5000;
-        this.speed = 0.5;
+        this.speed = 0.3;
         this.isBoss = true;
+        this.shootCooldown = 0;
     }
 
     draw() {
@@ -406,14 +555,14 @@ class Boss {
 
         // Glowing Armor Pieces
         ctx.fillStyle = this.color;
-        ctx.fillRect(-this.width / 2, -5, 15, 20);
-        ctx.fillRect(this.width / 2 - 15, -5, 15, 20);
+        ctx.fillRect(-this.width / 2, -5, this.width / 8, 20);
+        ctx.fillRect(this.width / 2 - this.width / 8, -5, this.width / 8, 20);
 
         // Core
         const pulse = Math.sin(Date.now() / 200) * 5;
         ctx.fillStyle = '#fff';
         ctx.beginPath();
-        ctx.arc(0, 0, 15 + pulse, 0, Math.PI * 2);
+        ctx.arc(0, 0, this.width / 8 + pulse, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 20;
         ctx.shadowColor = '#fff';
@@ -430,9 +579,36 @@ class Boss {
     }
 
     update() {
-        this.y += this.speed;
-        // Float side to side a bit
-        this.x += Math.sin(Date.now() / 1000) * 2;
+        // Stop moving down after reaching 15% of screen height
+        const targetY = canvas.height * 0.15;
+        if (this.y < targetY) {
+            this.y += this.speed * 4; // Faster entry
+        } else {
+            // Stay at top but hover slightly
+            this.y = targetY + Math.sin(Date.now() / 1500) * 20;
+        }
+
+        // Float side to side a bit, keeping within screen bounds
+        const driftRange = (canvas.width - this.width) / 2.5;
+        this.x = this.startX + Math.sin(Date.now() / 2000) * driftRange;
+
+        // Clamp to screen
+        this.x = Math.max(10, Math.min(canvas.width - this.width - 10, this.x));
+
+        // Boss Shooting
+        if (this.shootCooldown <= 0) {
+            this.shoot();
+            this.shootCooldown = 100; // Shoot every ~1.5 seconds
+        }
+        if (this.shootCooldown > 0) this.shootCooldown--;
+    }
+
+    shoot() {
+        playSound(150, 'square', 0.2, 0.05);
+        // Triple shot
+        enemyProjectiles.push(new EnemyProjectile(this.x + this.width / 2, this.y + this.height));
+        enemyProjectiles.push(new EnemyProjectile(this.x + 20, this.y + this.height - 10));
+        enemyProjectiles.push(new EnemyProjectile(this.x + this.width - 20, this.y + this.height - 10));
     }
 }
 
@@ -591,6 +767,17 @@ class Powerup {
 
     update() {
         this.y += this.speed;
+
+        // Magnet logic
+        if (player && playerStats.magnetRange > 0) {
+            const dx = (player.x + player.width / 2) - this.x;
+            const dy = (player.y + player.height / 2) - this.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < playerStats.magnetRange) {
+                this.x += (dx / dist) * 4;
+                this.y += (dy / dist) * 4;
+            }
+        }
     }
 }
 
@@ -665,6 +852,30 @@ function gameLoop() {
         if (p.y < 0) projectiles.splice(index, 1);
     });
 
+    // Update Enemy Projectiles
+    enemyProjectiles.forEach((p, index) => {
+        p.update();
+        p.draw();
+
+        // Hit Player
+        const dx = player.x + player.width / 2 - p.x;
+        const dy = player.y + player.height / 2 - p.y;
+        if (Math.hypot(dx, dy) < 30) {
+            enemyProjectiles.splice(index, 1);
+            if (shieldHits > 0) {
+                shieldHits--;
+                playSound(300, 'sine', 0.3);
+            } else {
+                createExplosion(player.x + player.width / 2, player.y + player.height / 2, '#00f2ff');
+                lives--;
+                livesEl.innerText = lives;
+                if (lives <= 0) endGame();
+            }
+        }
+
+        if (p.y > canvas.height) enemyProjectiles.splice(index, 1);
+    });
+
     // Update Enemies
     enemies.forEach((enemy, eIndex) => {
         enemy.update();
@@ -675,8 +886,8 @@ function gameLoop() {
         const dy = player.y + player.height / 2 - (enemy.y + enemy.height / 2);
         const distSq = dx * dx + dy * dy;
         if (distSq < 1600) { // 40^2 
-            if (hasShield) {
-                hasShield = false;
+            if (shieldHits > 0) {
+                shieldHits--;
                 enemies.splice(eIndex, 1);
                 createExplosion(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2, enemy.color);
                 playSound(300, 'sine', 0.3);
@@ -716,10 +927,20 @@ function gameLoop() {
                             const pX = (enemy.x + i * 40) % canvas.width;
                             powerups.push(new Powerup(pX, enemy.y));
                         }
+
+                        // Victory Breathing Room: Stop spawning for 5 seconds
+                        clearInterval(spawnInterval);
+                        setTimeout(() => {
+                            if (gameRunning) startSpawning();
+                        }, 5000);
                     }
 
                     score += enemy.points;
-                    credits += Math.floor(enemy.points / 10);
+                    let creditGain = Math.floor(enemy.points / 10);
+                    if (playerStats.bonusCredits > 0) {
+                        creditGain = Math.floor(creditGain * (1 + playerStats.bonusCredits));
+                    }
+                    credits += creditGain;
                     scoreEl.innerText = score;
                     creditsEl.innerText = credits;
                     saveData(); // Save every time we get credits
@@ -770,7 +991,7 @@ function gameLoop() {
             playSound(600, 'sine', 0.2);
 
             if (pu.type === 'SHIELD') {
-                hasShield = true;
+                shieldHits = 1 + (playerStats.shieldCapacity || 0);
             } else if (pu.type === 'SLOW_MO') {
                 slowMoTimer = 400; // ~7 seconds
                 ENEMY_BASE_SPEED = 0.5;
@@ -808,8 +1029,13 @@ function createExplosion(x, y, color) {
 
 let spawnInterval;
 function startSpawning() {
+    clearInterval(spawnInterval);
     spawnInterval = setInterval(() => {
         if (!gameRunning) return;
+
+        // Don't spawn normal enemies if a boss is currently alive
+        const bossAlive = enemies.some(e => e.isBoss);
+        if (bossAlive) return;
 
         // Check for Mini-Boss every 5000 points
         if (score > lastBossScore + 5000) {
@@ -830,7 +1056,7 @@ function startGame() {
 
     score = 0;
     lives = 3;
-    hasShield = false;
+    shieldHits = 0;
     slowMoTimer = 0;
     activePowerup = null;
     ENEMY_BASE_SPEED = 1.2;
@@ -839,6 +1065,7 @@ function startGame() {
     scoreEl.innerText = score;
     livesEl.innerText = lives;
     projectiles = [];
+    enemyProjectiles = [];
     enemies = [];
     particles = [];
     powerups = [];
@@ -894,6 +1121,7 @@ lobbyBtn.addEventListener('click', () => {
     startScreen.classList.add('hidden');
     lobbyScreen.classList.remove('hidden');
     updateUpgradeButtons();
+    updateStockUI();
 });
 
 backBtn.addEventListener('click', () => {
@@ -943,6 +1171,7 @@ goToLobbyBtn.addEventListener('click', () => {
     gameOverScreen.classList.add('hidden');
     lobbyScreen.classList.remove('hidden');
     updateUpgradeButtons();
+    updateStockUI();
 });
 
 // Login Logic
@@ -951,7 +1180,10 @@ loginBtn.addEventListener('click', () => {
     if (name) {
         pilotName = name;
         pilotNameEl.innerText = pilotName;
-        loadData(name);
+        const existingData = loadData(name);
+        if (!existingData || stock.length === 0) {
+            generateStock();
+        }
         loginScreen.classList.add('hidden');
         startScreen.classList.remove('hidden');
         audioCtx.resume();
@@ -961,3 +1193,123 @@ loginBtn.addEventListener('click', () => {
 
 startBtn.addEventListener('click', startGame);
 restartBtn.addEventListener('click', startGame);
+
+// --- STOCK SYSTEM IMPLEMENTATION ---
+const STOCK_RARITIES = [
+    { id: 'black-hole', name: 'Black Hole', count: 5, colorClass: 'rarity-black-hole', baseCost: 100000 },
+    { id: 'star', name: 'Star', count: 10, colorClass: 'rarity-star', baseCost: 25000 },
+    { id: 'super-rare', name: 'Super Rare', count: 15, colorClass: 'rarity-super-rare', baseCost: 10000 },
+    { id: 'rare', name: 'Rare', count: 20, colorClass: 'rarity-rare', baseCost: 5000 },
+    { id: 'uncommon', name: 'Uncommon', count: 25, colorClass: 'rarity-uncommon', baseCost: 2000 },
+    { id: 'common', name: 'Common', count: 30, colorClass: 'rarity-common', baseCost: 500 }
+];
+
+const STOCK_UPGRADE_TYPES = [
+    { id: 'crit', name: 'Precision Module', desc: '+5% Crit Chance', stat: 'critChance', val: 0.05 },
+    { id: 'magnet', name: 'Resource Magnet', desc: '+100 Magnet Range', stat: 'magnetRange', val: 100 },
+    { id: 'credits', name: 'Wealth Protocol', desc: '+10% Credit Gain', stat: 'bonusCredits', val: 0.1 },
+    { id: 'speed', name: 'Overdrive Engine', desc: '+10% Speed', stat: 'speedMultiplier', val: 0.1 },
+    { id: 'projectile', name: 'Heavy Rounds', desc: '+10% Bullet Size', stat: 'projectileSize', val: 0.1 },
+    { id: 'shield', name: 'Reinforced Hull', desc: '+1 Shield Capacity', stat: 'shieldCapacity', val: 1 }
+];
+
+function generateStock() {
+    stock = [];
+    STOCK_RARITIES.forEach(rarity => {
+        for (let i = 0; i < rarity.count; i++) {
+            const type = STOCK_UPGRADE_TYPES[Math.floor(Math.random() * STOCK_UPGRADE_TYPES.length)];
+            // Cost variance
+            const variance = 0.8 + Math.random() * 0.4;
+            const cost = Math.floor(rarity.baseCost * variance);
+
+            stock.push({
+                id: Math.random().toString(36).substr(2, 9),
+                rarity: rarity,
+                type: type,
+                cost: cost,
+                purchased: false
+            });
+        }
+    });
+    // Sort by rarity (Black Hole first)
+    const rarityOrder = ['black-hole', 'star', 'super-rare', 'rare', 'uncommon', 'common'];
+    stock.sort((a, b) => rarityOrder.indexOf(a.rarity.id) - rarityOrder.indexOf(b.rarity.id));
+
+    nextStockRefresh = Date.now() + (10 * 60 * 1000); // 10 minutes
+    saveData();
+    updateStockUI();
+}
+
+function updateStockUI() {
+    const container = document.getElementById('stock-items');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    stock.forEach(item => {
+        if (item.purchased) return;
+
+        const itemEl = document.createElement('div');
+        itemEl.className = `stock-item ${item.rarity.colorClass}`;
+        itemEl.innerHTML = `
+            <div class="stock-item-info">
+                <h4>${item.type.name}</h4>
+                <div class="stock-rarity-text">${item.rarity.name}</div>
+                <span>${item.type.desc}</span>
+            </div>
+            <button class="upgrade-btn stock-buy-btn" data-id="${item.id}">
+                ${item.cost} CR
+            </button>
+        `;
+
+        const buyBtn = itemEl.querySelector('.stock-buy-btn');
+        buyBtn.onclick = () => buyStockItem(item.id);
+
+        container.appendChild(itemEl);
+    });
+}
+
+function buyStockItem(itemId) {
+    const item = stock.find(i => i.id === itemId);
+    if (item && !item.purchased && credits >= item.cost) {
+        credits -= item.cost;
+        item.purchased = true;
+
+        // Apply effect
+        playerStats[item.type.stat] += item.type.val;
+
+        // Update UI
+        creditsEl.innerText = credits;
+        updateStockUI();
+        saveData();
+        playSound(600, 'sine', 0.2);
+    } else if (credits < item.cost) {
+        playSound(100, 'sine', 0.2); // Denied
+    }
+}
+
+function updateStockTimer() {
+    const timerEl = document.getElementById('stock-timer');
+    if (!timerEl) return;
+
+    const now = Date.now();
+    const diff = nextStockRefresh - now;
+
+    if (diff <= 0) {
+        generateStock();
+    } else {
+        const mins = Math.floor(diff / 60000);
+        const secs = Math.floor((diff % 60000) / 1000);
+        timerEl.innerText = `REFRESH IN: ${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+}
+
+// Start timer loop
+setInterval(updateStockTimer, 1000);
+
+// Initialize stock if empty or expired
+if (stock.length === 0 || Date.now() > nextStockRefresh) {
+    // generateStock() will be called by first updateStockTimer tick or manually if needed
+    // But since pilots might not be logged in yet, we'll wait for login.
+}
+
